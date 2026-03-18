@@ -1,0 +1,239 @@
+name: Local APK Signer
+
+on:
+  workflow_dispatch:
+    inputs:
+      apk_filename:
+        description: 'Name of APK file in repo root'
+        required: true
+        default: 'robbie.apk'
+      keystore_filename:
+        description: 'Name of keystore file in repo root'
+        required: true
+        default: 'my-release-key.keystore'
+      keystore_password:
+        description: 'Keystore password'
+        required: true
+      key_alias:
+        description: 'Key alias'
+        required: true
+      key_password:
+        description: 'Key password (if different from keystore)'
+        required: false
+
+jobs:
+  sign-apk:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      
+    - name: Set up JDK
+      uses: actions/setup-java@v3
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+        
+    - name: Install Android SDK tools
+      run: |
+        sudo apt update
+        sudo apt install -y android-sdk
+        echo "ANDROID_HOME=/usr/lib/android-sdk" >> $GITHUB_ENV
+        
+    - name: Verify files exist
+      run: |
+        echo "📂 Current directory: $(pwd)"
+        echo "📋 Files in repository root:"
+        ls -la
+        
+        if [ ! -f "${{ github.event.inputs.apk_filename }}" ]; then
+          echo "❌ APK file not found: ${{ github.event.inputs.apk_filename }}"
+          exit 1
+        fi
+        
+        if [ ! -f "${{ github.event.inputs.keystore_filename }}" ]; then
+          echo "❌ Keystore file not found: ${{ github.event.inputs.keystore_filename }}"
+          exit 1
+        fi
+        
+        echo "✅ All files found"
+        
+    - name: Get file info
+      run: |
+        echo "📱 APK: ${{ github.event.inputs.apk_filename }} ($(du -h ${{ github.event.inputs.apk_filename }} | cut -f1))"
+        echo "🔑 Keystore: ${{ github.event.inputs.keystore_filename }} ($(du -h ${{ github.event.inputs.keystore_filename }} | cut -f1))"
+        
+    - name: Sign APK
+      run: |
+        # Create output filename
+        OUTPUT_APK="signed-$(basename "${{ github.event.inputs.apk_filename }}" .apk)-$(date +%Y%m%d).apk"
+        echo "OUTPUT_APK=$OUTPUT_APK" >> $GITHUB_ENV
+        
+        # Sign with jarsigner
+        jarsigner -verbose \
+          -sigalg SHA1withRSA \
+          -digestalg SHA1 \
+          -keystore "${{ github.event.inputs.keystore_filename }}" \
+          -storepass "${{ github.event.inputs.keystore_password }}" \
+          -keypass "${{ github.event.inputs.key_password || github.event.inputs.keystore_password }}" \
+          -signedjar "$OUTPUT_APK" \
+          "${{ github.event.inputs.apk_filename }}" \
+          "${{ github.event.inputs.key_alias }}"
+          
+        echo "✅ APK signed successfully"
+        
+    - name: Verify signature
+      run: |
+        jarsigner -verify -verbose -certs ${{ env.OUTPUT_APK }} | head -20
+        echo "✅ Signature verification complete"
+        
+    - name: Create download page
+      run: |
+        mkdir -p public
+        cp ${{ env.OUTPUT_APK }} public/
+        
+        cat > public/index.html << EOF
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Signed APK Download</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+            text-align: center;
+        }
+        .container {
+            background: white;
+            border-radius: 12px;
+            padding: 40px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+        .apk-info {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 30px 0;
+            text-align: left;
+        }
+        .info-item {
+            margin: 10px 0;
+            padding: 5px;
+            border-bottom: 1px solid #dee2e6;
+        }
+        .label {
+            font-weight: bold;
+            color: #495057;
+            display: inline-block;
+            width: 120px;
+        }
+        .download-btn {
+            display: inline-block;
+            background: #28a745;
+            color: white;
+            text-decoration: none;
+            padding: 15px 40px;
+            border-radius: 50px;
+            font-size: 18px;
+            font-weight: bold;
+            margin: 20px 0;
+            transition: background 0.3s;
+        }
+        .download-btn:hover {
+            background: #218838;
+        }
+        .footer {
+            color: #6c757d;
+            font-size: 14px;
+            margin-top: 30px;
+        }
+        .hash {
+            font-family: monospace;
+            background: #e9ecef;
+            padding: 5px;
+            border-radius: 4px;
+            word-break: break-all;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>✅ Your Signed APK is Ready!</h1>
+        <p>Generated by GitHub Actions</p>
+        
+        <div class="apk-info">
+            <div class="info-item">
+                <span class="label">Filename:</span>
+                <span class="hash">${{ env.OUTPUT_APK }}</span>
+            </div>
+            <div class="info-item">
+                <span class="label">Size:</span>
+                <span>$(du -h ${{ env.OUTPUT_APK }} | cut -f1)</span>
+            </div>
+            <div class="info-item">
+                <span class="label">Signed:</span>
+                <span>$(date '+%Y-%m-%d %H:%M:%S UTC')</span>
+            </div>
+            <div class="info-item">
+                <span class="label">Alias:</span>
+                <span>${{ github.event.inputs.key_alias }}</span>
+            </div>
+            <div class="info-item">
+                <span class="label">SHA-256:</span>
+                <span class="hash">$(sha256sum ${{ env.OUTPUT_APK }} | cut -d' ' -f1)</span>
+            </div>
+        </div>
+        
+        <a href="${{ env.OUTPUT_APK }}" class="download-btn" download>📱 Download APK</a>
+        
+        <div class="footer">
+            <p>🔐 Signed using GitHub Actions • Valid for installation on Android devices</p>
+            <p>Run ID: ${{ github.run_id }} | Workflow: ${{ github.workflow }}</p>
+        </div>
+    </div>
+</body>
+</html>
+EOF
+        
+        echo "📄 Download page created"
+        
+    - name: Generate QR Code for easy install
+      run: |
+        sudo apt install -y qrencode
+        DOWNLOAD_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/${{ env.OUTPUT_APK }}"
+        qrencode -o public/qr.png -s 10 "$DOWNLOAD_URL"
+        echo "✅ QR code generated"
+        
+    - name: Deploy to GitHub Pages
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./public
+        enable_jekyll: false
+        publish_branch: gh-pages
+        
+    - name: Display URLs
+      run: |
+        echo "================================================"
+        echo "✅ APK SIGNED SUCCESSFULLY!"
+        echo "================================================"
+        echo "📱 Download Page:"
+        echo "   https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
+        echo ""
+        echo "🔗 Direct APK Link:"
+        echo "   https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/${{ env.OUTPUT_APK }}"
+        echo "================================================"
