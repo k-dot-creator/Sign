@@ -4,9 +4,9 @@ const path = require('path');
 
 // Configuration - CHANGE THESE
 const config = {
-  apkFile: 'app.apk',
+  apkFile: 'robbiejr.apk',
   keystoreFile: 'my-release-key.keystore',
-  keystorePass: 'your-password',
+  keystorePass: 'robbiejr',
   keyAlias: 'alias_name',
   outputFile: 'signed-app.apk'
 };
