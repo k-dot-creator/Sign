@@ -6,7 +6,7 @@ on:
       apk_filename:
         description: 'Name of APK file in repo root'
         required: true
-        default: 'app.apk'
+        default: 'robbie.apk'
       keystore_filename:
         description: 'Name of keystore file in repo root'
         required: true
